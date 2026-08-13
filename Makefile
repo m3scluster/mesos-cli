@@ -2,7 +2,19 @@
 
 #vars
 
-.PHONY: help build bootstrap all
+.PHONY: help build upload upload-check install install-dev docs all
+
+PYTHON ?= python3
+TWINE := $(shell command -v twine 2>/dev/null)
+
+ifeq ($(TWINE),)
+TWINE := nix shell nixpkgs\#twine --command twine
+endif
+
+PACKAGE_VERSION := $(shell $(PYTHON) setup.py --version)
+DIST_FILES := \
+	dist/avmesos_cli-$(PACKAGE_VERSION)-py3-none-any.whl \
+	dist/avmesos_cli-$(PACKAGE_VERSION).tar.gz
 
 help:
 	    @echo "Makefile arguments:"
@@ -17,10 +29,13 @@ help:
 
 build:	
 	@echo ">>>> Build python module"
-	@python3 setup.py sdist bdist_wheel	
+	@$(PYTHON) setup.py sdist bdist_wheel
 
-upload:
-	@python3 -m twine upload --repository pypi dist/*
+upload-check: build
+	@$(TWINE) check $(DIST_FILES)
+
+upload: upload-check
+	@$(TWINE) upload --verbose --repository pypi $(DIST_FILES)
 
 install:	
 	@echo ">>>> Install python module"
