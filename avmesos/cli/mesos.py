@@ -239,6 +239,7 @@ class TaskIO():
         # sending/receiving data over the network.
         self.input_queue = Queue()
         self.output_queue = Queue()
+        self.input_ready_marker = object()
 
         # Set up an event to block attaching
         # input until attaching output is complete.
@@ -393,13 +394,14 @@ class TaskIO():
         try:
             if self.interactive:
                 self.supports_exit_sequence = True
-                tty.setraw(fd, when=termios.TCSANOW)
+                tty.setraw(fd, when=termios.TCSAFLUSH)
                 # To force a redraw of the remote terminal, we first resize it
                 # to 0 before setting it to the actual size of our local
                 # terminal. After that, all terminal resizing is handled in our
                 # SIGWINCH handler.
                 self._window_resize(signal.SIGWINCH, dimensions=[0, 0])
                 self._window_resize(signal.SIGWINCH)
+                self.input_queue.put(self.input_ready_marker)
                 signal.signal(signal.SIGWINCH, self._window_resize)
 
             self._start_threads()
@@ -663,8 +665,14 @@ class TaskIO():
             """
             yield next(_initial_input_streamer(), None)
 
+            if not self.tty:
+                self.print_output_event.set()
+
             while True:
                 record = self.input_queue.get()
+                if record is self.input_ready_marker:
+                    self.print_output_event.set()
+                    continue
                 if not record:
                     if self.exit_sequence_detected:
                         sys.stdout.write("\r\n")
@@ -708,10 +716,6 @@ class TaskIO():
         except MesosHTTPException as e:
             if not e.response.status_code == 500:
                 raise e
-
-        # If we succeeded with that connection, unblock process_output_stream()
-        # from sending output data to the output thread.
-        self.print_output_event.set()
 
         # Begin streaming the input.
         resource = mesos_http.Resource(self.agent_url)
