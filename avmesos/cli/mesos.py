@@ -34,6 +34,7 @@ from queue import Queue
 
 import termios
 
+from avmesos import http as mesos_http
 from avmesos.cli import http
 from avmesos.cli import util
 from avmesos.cli.exceptions import CLIException
@@ -187,12 +188,8 @@ class TaskIO():
     HEARTBEAT_INTERVAL_NANOSECONDS = HEARTBEAT_INTERVAL * 1000000000
 
     def __init__(self, master, config, task_id):
-        # Get the task and make sure its container was launched by the UCR.
-        # Since task's containers are launched by the UCR by default, we want
-        # to allow most tasks to pass through unchecked. The only exception is
-        # when a task has an explicit container specified and it is not of type
-        # "MESOS". Having a type of "MESOS" implies that it was launched by the
-        # UCR -- all other types imply it was not.
+        # Resolve the running task. The agent's container session API routes
+        # the request to the owning Mesos or Docker containerizer.
         try:
             tasks = get_tasks(master, config, query={'task_id': task_id})
         except Exception as exception:
@@ -212,16 +209,7 @@ class TaskIO():
         if len(matching_tasks) > 1:
             raise CLIException("More than one task matching id '{id}'"
                                .format(id=task_id))
-
-
         task_obj = matching_tasks[0]
-
-        if "container" in task_obj:
-            if "type" in task_obj["container"]:
-                if task_obj["container"]["type"] != "MESOS":
-                    raise CLIException(
-                        "This command is only supported for tasks"
-                        " launched by the Universal Container Runtime (UCR).")
 
         # Get the scheme of the agent
         scheme = "https://" if config.agent_ssl() else "http://"
@@ -229,7 +217,7 @@ class TaskIO():
         # Get the URL to the agent running the task.
         agent_addr = util.sanitize_address(
             scheme + get_agent_address(task_obj["slave_id"], master, config))
-        self.agent_url = mesos.http.simple_urljoin(agent_addr, "api/v1")
+        self.agent_url = mesos_http.simple_urljoin(agent_addr, "api/v1")
         # Get the agent's task path by checking the `state` endpoint.
         try:
             self.container_id = get_container_id(task_obj)
@@ -444,9 +432,9 @@ class TaskIO():
                 'Content-Type': 'application/json',
                 'Accept': 'application/json'}}
         try:
-            resource = mesos.http.Resource(self.agent_url)
+            resource = mesos_http.Resource(self.agent_url)
             response = resource.request(
-                mesos.http.METHOD_POST,
+                mesos_http.METHOD_POST,
                 data=json.dumps(message),
                 auth=self.config.authentication_header(),
                 retry=False,
@@ -546,9 +534,9 @@ class TaskIO():
                 'Message-Accept': 'application/json'}}
 
         try:
-            resource = mesos.http.Resource(self.agent_url)
+            resource = mesos_http.Resource(self.agent_url)
             response = resource.request(
-                mesos.http.METHOD_POST,
+                mesos_http.METHOD_POST,
                 data=json.dumps(message),
                 retry=False,
                 timeout=None,
@@ -593,10 +581,10 @@ class TaskIO():
                 'Content-Type': 'application/json',
                 'Accept': 'application/recordio',
                 'Message-Accept': 'application/json'}}
-        resource = mesos.http.Resource(self.agent_url)
+        resource = mesos_http.Resource(self.agent_url)
         try:
             response = resource.request(
-                mesos.http.METHOD_POST,
+                mesos_http.METHOD_POST,
                 data=json.dumps(message),
                 retry=False,
                 timeout=None,
@@ -709,10 +697,10 @@ class TaskIO():
         # we can't connect to the container because it has already finished
         # running. In that case we continue running to allow the output queue
         # to be flushed.
-        resource = mesos.http.Resource(self.agent_url)
+        resource = mesos_http.Resource(self.agent_url)
         try:
             resource.request(
-                mesos.http.METHOD_POST,
+                mesos_http.METHOD_POST,
                 data=_initial_input_streamer(),
                 retry=False,
                 auth=self.config.authentication_header(),
@@ -726,9 +714,9 @@ class TaskIO():
         self.print_output_event.set()
 
         # Begin streaming the input.
-        resource = mesos.http.Resource(self.agent_url)
+        resource = mesos_http.Resource(self.agent_url)
         resource.request(
-            mesos.http.METHOD_POST,
+            mesos_http.METHOD_POST,
             data=_input_streamer(),
             retry=False,
             timeout=None,

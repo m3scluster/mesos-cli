@@ -61,7 +61,10 @@ class Task(PluginBase):
                 "-t --tty": "tty [default: False]"
             },
             "short_help": "Execute commands in a task's container",
-            "long_help": "Execute commands in a task's container"
+            "long_help": """
+                Execute commands in a running task's Mesos or Docker
+                container. The task ID is resolved to its container ID and
+                owning agent."""
         },
         "list": {
             "arguments": [],
